@@ -10,14 +10,8 @@ from torchvision.models.detection import (
     SSDLite320_MobileNet_V3_Large_Weights
 )
 
-# Safe MTCNN import
-try:
-    from mtcnn import MTCNN
-    MTCNN_IMPORT_OK = True
-except Exception as e:
-    print(f"[WARNING] MTCNN import failed: {e}. Haar Cascade fallback will be used.")
-    MTCNN_IMPORT_OK = False
-    MTCNN = None
+
+
 
 
 # Configuration & Model Loading
@@ -56,15 +50,22 @@ else:
     CLASS_NAMES = ["angry", "happy", "sad", "neutral", "fear", "disgust", "surprise"]
     IMG_SIZE = 224
 
-# Load MTCNN safely
-mtcnn = None
-if MTCNN_IMPORT_OK and MTCNN is not None:
+# Lazy-loaded MTCNN face detector to prevent high startup memory and timeouts
+_mtcnn = None
+
+def get_mtcnn():
+    global _mtcnn
+    if _mtcnn is not None:
+        return _mtcnn
     try:
-        mtcnn = MTCNN(device=str(DEVICE))
+        from mtcnn import MTCNN
+        _mtcnn = MTCNN(device=str(DEVICE))
         print("[INFO] MTCNN face detector loaded successfully.")
     except Exception as e:
         print(f"[WARNING] MTCNN init failed: {e}. Haar Cascade fallback active.")
-        mtcnn = None
+        _mtcnn = None
+    return _mtcnn
+
 
 # Load SSD MobileNetV3 safely
 ssd_model = None
@@ -150,12 +151,14 @@ def predict_emotions(img_bgr: np.ndarray, use_ssd: bool = True, ssd_score_thresh
 
     # Face detection: Try MTCNN first, fallback to OpenCV Haar Cascade
     detections = []
-    if mtcnn is not None:
+    detector = get_mtcnn()
+    if detector is not None:
         try:
-            detections = mtcnn.detect_faces(rgb)
+            detections = detector.detect_faces(rgb)
         except Exception as e:
             print(f"[WARNING] MTCNN face detection error: {e}")
             detections = []
+
 
     if not detections:
         try:
